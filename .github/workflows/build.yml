@@ -57,7 +57,7 @@ jobs:
       - name: Verify universal binary
         run: lipo -info ./build/paprika
 
-      - name: Stage artifact
+      - name: Stage bare binary
         run: |
           mkdir -p dist
           cp build/paprika dist/paprika
@@ -66,6 +66,14 @@ jobs:
         with:
           name: paprika-macos-universal
           path: dist/paprika
+
+      - name: Build DMG
+        run: cmake --build build --target paprika_dmg
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: paprika-macos-dmg
+          path: build/dist/Paprika-Tool-*.dmg
 
   release:
     name: Attach to release
@@ -85,6 +93,7 @@ jobs:
           cp artifacts/paprika-windows-x64/paprika.exe release/paprika-windows-x64.exe
           cp artifacts/paprika-macos-universal/paprika release/paprika-macos-universal
           chmod +x release/paprika-macos-universal
+          cp artifacts/paprika-macos-dmg/Paprika-Tool-*.dmg release/
 
       - uses: softprops/action-gh-release@v2
         with:

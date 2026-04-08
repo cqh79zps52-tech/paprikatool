@@ -9,7 +9,7 @@
 #include <stddef.h>
 
 #define PAPRIKA_NAME    "Paprika Tool"
-#define PAPRIKA_VERSION "1.1.1"
+#define PAPRIKA_VERSION "1.1.2"
 
 #if defined(_WIN32)
 #  define PAPRIKA_WINDOWS 1
@@ -52,6 +52,11 @@ void paprika_shell_quote(char *out, size_t cap, const char *arg);
 void paprika_chomp(char *line);
 
 /* ── installer.c ─────────────────────────────────────────────────────────── */
+
+/* Directory where bundled tools (yt-dlp, ffmpeg) live. On Windows this is
+ * the directory containing the executable. On macOS it's the per-user
+ * support dir, so the app can be installed read-only in /Applications. */
+void paprika_tools_dir(char *out, size_t cap);
 
 void paprika_ytdlp_path(char *out, size_t cap);
 void paprika_ffmpeg_path(char *out, size_t cap);

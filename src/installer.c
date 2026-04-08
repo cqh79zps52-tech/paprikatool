@@ -35,13 +35,29 @@ static void emitf(paprika_line_cb cb, void *ud, const char *fmt, ...)
     emit(cb, ud, buf);
 }
 
+void paprika_tools_dir(char *out, size_t cap)
+{
+#if defined(PAPRIKA_WINDOWS)
+    /* Tools live next to paprika.exe — that directory is always
+     * user-writable for normal portable installs. */
+    if (!paprika_exe_dir(out, cap)) snprintf(out, cap, ".");
+#else
+    /* On macOS the app can live in /Applications which is read-only for
+     * standard users, so we keep tools in the per-user support dir. */
+    char base[PAPRIKA_PATH_MAX];
+    if (!paprika_config_dir(base, sizeof(base))) {
+        snprintf(out, cap, ".");
+        return;
+    }
+    paprika_path_join(out, cap, base, "tools");
+    paprika_mkdir_p(out);
+#endif
+}
+
 void paprika_ytdlp_path(char *out, size_t cap)
 {
     char dir[PAPRIKA_PATH_MAX];
-    if (!paprika_exe_dir(dir, sizeof(dir))) {
-        snprintf(out, cap, "yt-dlp%s", PAPRIKA_EXE_SUFFIX);
-        return;
-    }
+    paprika_tools_dir(dir, sizeof(dir));
     char name[64];
     snprintf(name, sizeof(name), "yt-dlp%s", PAPRIKA_EXE_SUFFIX);
     paprika_path_join(out, cap, dir, name);
@@ -50,10 +66,7 @@ void paprika_ytdlp_path(char *out, size_t cap)
 void paprika_ffmpeg_path(char *out, size_t cap)
 {
     char dir[PAPRIKA_PATH_MAX];
-    if (!paprika_exe_dir(dir, sizeof(dir))) {
-        snprintf(out, cap, "ffmpeg%s", PAPRIKA_EXE_SUFFIX);
-        return;
-    }
+    paprika_tools_dir(dir, sizeof(dir));
     char name[64];
     snprintf(name, sizeof(name), "ffmpeg%s", PAPRIKA_EXE_SUFFIX);
     paprika_path_join(out, cap, dir, name);
@@ -138,11 +151,11 @@ bool paprika_install_ffmpeg(paprika_line_cb cb, void *ud)
     emit(cb, ud, "[paprika] Auto-install of ffmpeg only supported on Windows and macOS.");
     return false;
 #else
-    char exe_dir[PAPRIKA_PATH_MAX];
-    if (!paprika_exe_dir(exe_dir, sizeof(exe_dir))) return false;
+    char tools[PAPRIKA_PATH_MAX];
+    paprika_tools_dir(tools, sizeof(tools));
 
     char zip_path[PAPRIKA_PATH_MAX];
-    paprika_path_join(zip_path, sizeof(zip_path), exe_dir, "_ffmpeg_tmp.zip");
+    paprika_path_join(zip_path, sizeof(zip_path), tools, "_ffmpeg_tmp.zip");
 
     char dest[PAPRIKA_PATH_MAX];
     paprika_ffmpeg_path(dest, sizeof(dest));
@@ -155,7 +168,7 @@ bool paprika_install_ffmpeg(paprika_line_cb cb, void *ud)
     }
 
     char extract_dir[PAPRIKA_PATH_MAX];
-    paprika_path_join(extract_dir, sizeof(extract_dir), exe_dir, "_ffmpeg_extract");
+    paprika_path_join(extract_dir, sizeof(extract_dir), tools, "_ffmpeg_extract");
     paprika_mkdir_p(extract_dir);
 
     char cmd[PAPRIKA_PATH_MAX * 3] = {0};
@@ -175,16 +188,16 @@ bool paprika_install_ffmpeg(paprika_line_cb cb, void *ud)
 #if defined(PAPRIKA_WINDOWS)
     snprintf(find_cmd, sizeof(find_cmd),
              "where /R \"%s\" %s > \"%s\\_found.txt\"",
-             extract_dir, FFMPEG_EXE_NAME, exe_dir);
+             extract_dir, FFMPEG_EXE_NAME, tools);
 #else
     snprintf(find_cmd, sizeof(find_cmd),
              "find \"%s\" -type f -name \"%s\" > \"%s/_found.txt\"",
-             extract_dir, FFMPEG_EXE_NAME, exe_dir);
+             extract_dir, FFMPEG_EXE_NAME, tools);
 #endif
     paprika_run_silent(find_cmd);
 
     char list_path[PAPRIKA_PATH_MAX];
-    paprika_path_join(list_path, sizeof(list_path), exe_dir, "_found.txt");
+    paprika_path_join(list_path, sizeof(list_path), tools, "_found.txt");
 
     FILE *f = fopen(list_path, "r");
     if (!f) {

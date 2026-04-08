@@ -66,10 +66,9 @@ bool paprika_download(const char *url,
 
     if (have_local_ffmpeg) {
         char ffmpeg_dir[PAPRIKA_PATH_MAX];
-        if (paprika_exe_dir(ffmpeg_dir, sizeof(ffmpeg_dir))) {
-            strcat(cmd, " --ffmpeg-location ");
-            paprika_shell_quote(cmd, sizeof(cmd), ffmpeg_dir);
-        }
+        paprika_tools_dir(ffmpeg_dir, sizeof(ffmpeg_dir));
+        strcat(cmd, " --ffmpeg-location ");
+        paprika_shell_quote(cmd, sizeof(cmd), ffmpeg_dir);
     }
 
     if (opts->audio_only) {

@@ -100,3 +100,21 @@ endif()
 set_target_properties(paprika PROPERTIES OUTPUT_NAME "paprika")
 
 install(TARGETS paprika RUNTIME DESTINATION bin)
+
+# ── macOS DMG packaging ──────────────────────────────────────────────────
+# `cmake --build build --target paprika_dmg` produces a "Paprika Tool.app"
+# inside a drag-to-install DMG. The script does all the bundle plumbing so
+# the same flow runs both locally and in CI without extra tooling — only
+# `hdiutil`, which ships with macOS, is required.
+if(APPLE)
+    add_custom_target(paprika_dmg
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/dist"
+        COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/scripts/make_dmg.sh"
+                "$<TARGET_FILE:paprika>"
+                "${CMAKE_BINARY_DIR}/dist"
+                "1.1.2"
+        DEPENDS paprika
+        VERBATIM
+        USES_TERMINAL
+    )
+endif()
