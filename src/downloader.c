@@ -4,14 +4,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#if defined(PAPRIKA_WINDOWS)
-#  define POPEN  _popen
-#  define PCLOSE _pclose
-#else
-#  define POPEN  popen
-#  define PCLOSE pclose
-#endif
-
 static const char *format_for(paprika_quality q)
 {
     switch (q) {
@@ -93,7 +85,6 @@ bool paprika_download(const char *url,
 
     strcat(cmd, " ");
     paprika_shell_quote(cmd, sizeof(cmd), url);
-    strcat(cmd, " 2>&1");
 
     {
         char banner[sizeof(cmd) + 32];
@@ -101,19 +92,7 @@ bool paprika_download(const char *url,
         emit(cb, ud, banner);
     }
 
-    FILE *p = POPEN(cmd, "r");
-    if (!p) {
-        emit(cb, ud, "[paprika] Failed to launch yt-dlp.");
-        return false;
-    }
-
-    char line[2048];
-    while (fgets(line, sizeof(line), p)) {
-        paprika_chomp(line);
-        emit(cb, ud, line);
-    }
-
-    int rc = PCLOSE(p);
+    int rc = paprika_run_capture(cmd, cb, ud);
     if (rc != 0) {
         char msg[64];
         snprintf(msg, sizeof(msg), "[paprika] yt-dlp exited with status %d", rc);

@@ -9,7 +9,7 @@
 #include <stddef.h>
 
 #define PAPRIKA_NAME    "Paprika Tool"
-#define PAPRIKA_VERSION "1.1.0"
+#define PAPRIKA_VERSION "1.1.1"
 
 #if defined(_WIN32)
 #  define PAPRIKA_WINDOWS 1
@@ -27,6 +27,17 @@
  * and trimmed of trailing CR/LF. The callback may be invoked from a worker
  * thread, so implementations must be thread-safe. */
 typedef void (*paprika_line_cb)(const char *line, void *userdata);
+
+/* ── proc.c ──────────────────────────────────────────────────────────────── */
+
+/* Run a shell command and return its exit code. Each line of merged
+ * stdout+stderr is delivered through `cb` (or discarded if cb is NULL).
+ * On Windows, children spawn with CREATE_NO_WINDOW so the GUI build never
+ * pops a console window. */
+int  paprika_run_capture(const char *cmd, paprika_line_cb cb, void *userdata);
+
+/* Same as above, but discards output. Use for cheap PATH probes. */
+int  paprika_run_silent(const char *cmd);
 
 /* ── util.c ──────────────────────────────────────────────────────────────── */
 

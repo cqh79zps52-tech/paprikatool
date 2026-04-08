@@ -127,8 +127,23 @@ typedef struct {
     settings_tab    settings;
     bool            ytdlp_present;
     bool            ffmpeg_present;
-    int             tool_check_timer;
+    /* Last seen state of the settings-tab job, used to refresh the
+     * yt-dlp/ffmpeg presence once when an install finishes. */
+    paprika_job_state settings_prev_state;
 } app_state;
+
+/* ── click-to-edit helper for raygui text boxes ──────────────────────────── */
+
+/* GuiTextBox in raygui 4.0 toggles its `editMode` flag only when the user
+ * presses Enter. To get the expected "click into a field to type" UX we
+ * sample the mouse ourselves: every click activates whatever box is under
+ * the cursor and deactivates everything else. */
+static void textbox_click_to_edit(Rectangle r, bool *edit)
+{
+    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        *edit = CheckCollisionPointRec(GetMousePosition(), r);
+    }
+}
 
 /* ── styling ─────────────────────────────────────────────────────────────── */
 
@@ -221,8 +236,9 @@ static void draw_download_tab(app_state *s, download_tab *t,
     y += 18;
 
     Rectangle url_box = { (float)x, (float)y, MAIN_W - 100, 32 };
+    textbox_click_to_edit(url_box, &t->url_edit);
     if (GuiTextBox(url_box, t->url, sizeof(t->url), t->url_edit)) {
-        t->url_edit = !t->url_edit;
+        t->url_edit = false; /* Enter committed */
     }
     Rectangle paste_btn = { url_box.x + url_box.width + 6, (float)y, 90, 32 };
     if (GuiButton(paste_btn, "Paste")) {
@@ -296,15 +312,17 @@ static void draw_autocut_tab(app_state *s)
     DrawText("Input file", x, y, 12, (Color){ 175, 182, 205, 255 });
     y += 18;
     Rectangle in_box = { (float)x, (float)y, MAIN_W, 30 };
+    textbox_click_to_edit(in_box, &t->input_edit);
     if (GuiTextBox(in_box, t->input, sizeof(t->input), t->input_edit))
-        t->input_edit = !t->input_edit;
+        t->input_edit = false;
     y += 40;
 
     DrawText("Output file", x, y, 12, (Color){ 175, 182, 205, 255 });
     y += 18;
     Rectangle out_box = { (float)x, (float)y, MAIN_W, 30 };
+    textbox_click_to_edit(out_box, &t->output_edit);
     if (GuiTextBox(out_box, t->output, sizeof(t->output), t->output_edit))
-        t->output_edit = !t->output_edit;
+        t->output_edit = false;
     y += 40;
 
     DrawText("Threshold (dB)", x, y, 12, (Color){ 175, 182, 205, 255 });
@@ -312,10 +330,12 @@ static void draw_autocut_tab(app_state *s)
     y += 18;
     Rectangle db_box   = { (float)x,        (float)y, 140, 30 };
     Rectangle fade_box = { (float)x + 160,  (float)y, 140, 30 };
+    textbox_click_to_edit(db_box,   &t->db_edit);
+    textbox_click_to_edit(fade_box, &t->fade_edit);
     if (GuiTextBox(db_box, t->db_buf, sizeof(t->db_buf), t->db_edit))
-        t->db_edit = !t->db_edit;
+        t->db_edit = false;
     if (GuiTextBox(fade_box, t->fade_buf, sizeof(t->fade_buf), t->fade_edit))
-        t->fade_edit = !t->fade_edit;
+        t->fade_edit = false;
     y += 44;
 
     bool running = paprika_job_state_get(t->panel.job) == PAPRIKA_JOB_RUNNING;
@@ -352,9 +372,16 @@ static void draw_settings_tab(app_state *s)
     DrawText("Output directory", x, y, 12, (Color){ 175, 182, 205, 255 });
     y += 18;
     Rectangle dir_box = { (float)x, (float)y, MAIN_W, 30 };
+    bool was_editing = t->out_dir_edit;
+    textbox_click_to_edit(dir_box, &t->out_dir_edit);
     if (GuiTextBox(dir_box, t->out_dir_edit_buf,
                    sizeof(t->out_dir_edit_buf), t->out_dir_edit)) {
-        t->out_dir_edit = !t->out_dir_edit;
+        t->out_dir_edit = false;
+    }
+    /* Commit on focus loss (or Enter), not on every keystroke. */
+    if (was_editing && !t->out_dir_edit &&
+        strcmp(t->out_dir_edit_buf, s->cfg->output_dir) != 0)
+    {
         snprintf(s->cfg->output_dir, sizeof(s->cfg->output_dir),
                  "%s", t->out_dir_edit_buf);
         paprika_config_save(s->cfg);
@@ -463,12 +490,20 @@ int paprika_gui_run(paprika_config *cfg)
         log_panel_drain(&s.autocut.panel);
         log_panel_drain(&s.settings.panel);
 
-        /* Re-probe tool availability roughly twice a second. */
-        if (++s.tool_check_timer >= 30) {
-            s.tool_check_timer = 0;
+        /* Refresh the yt-dlp/ffmpeg presence dots only when an install
+         * job actually finishes. We previously polled every 30 frames,
+         * which on Windows GUI builds called `where yt-dlp` via the C
+         * runtime — that synchronously spawns cmd.exe with a console,
+         * blocks the UI thread, and triggers Windows' "Not responding"
+         * watchdog plus a flashing console window every half second. */
+        paprika_job_state cur = paprika_job_state_get(s.settings.panel.job);
+        if (cur != s.settings_prev_state &&
+            (cur == PAPRIKA_JOB_DONE_OK || cur == PAPRIKA_JOB_DONE_FAIL))
+        {
             s.ytdlp_present  = paprika_ytdlp_present();
             s.ffmpeg_present = paprika_ffmpeg_present();
         }
+        s.settings_prev_state = cur;
 
         BeginDrawing();
         ClearBackground((Color){ 20, 24, 32, 255 });

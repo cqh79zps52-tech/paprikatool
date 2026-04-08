@@ -6,20 +6,14 @@
 #include <string.h>
 
 #if defined(PAPRIKA_WINDOWS)
-#  define POPEN  _popen
-#  define PCLOSE _pclose
 #  define YTDLP_URL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
 #  define FFMPEG_URL "https://github.com/BtbN/ffmpeg-builds/releases/latest/download/ffmpeg-master-latest-win64-gpl.zip"
 #  define FFMPEG_EXE_NAME "ffmpeg.exe"
 #elif defined(__APPLE__)
-#  define POPEN  popen
-#  define PCLOSE pclose
 #  define YTDLP_URL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos"
 #  define FFMPEG_URL "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip"
 #  define FFMPEG_EXE_NAME "ffmpeg"
 #else
-#  define POPEN  popen
-#  define PCLOSE pclose
 #  define YTDLP_URL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
 #  define FFMPEG_URL ""
 #  define FFMPEG_EXE_NAME "ffmpeg"
@@ -87,9 +81,9 @@ bool paprika_ytdlp_present(void)
     paprika_ytdlp_path(p, sizeof(p));
     if (paprika_file_exists(p)) return true;
 #if defined(PAPRIKA_WINDOWS)
-    return system("where yt-dlp >NUL 2>&1") == 0;
+    return paprika_run_silent("where yt-dlp") == 0;
 #else
-    return system("command -v yt-dlp >/dev/null 2>&1") == 0;
+    return paprika_run_silent("command -v yt-dlp") == 0;
 #endif
 }
 
@@ -99,9 +93,9 @@ bool paprika_ffmpeg_present(void)
     paprika_ffmpeg_path(p, sizeof(p));
     if (paprika_file_exists(p)) return true;
 #if defined(PAPRIKA_WINDOWS)
-    return system("where ffmpeg >NUL 2>&1") == 0;
+    return paprika_run_silent("where ffmpeg") == 0;
 #else
-    return system("command -v ffmpeg >/dev/null 2>&1") == 0;
+    return paprika_run_silent("command -v ffmpeg") == 0;
 #endif
 }
 
@@ -109,20 +103,7 @@ bool paprika_ffmpeg_present(void)
 static int run_cmd(const char *cmd, paprika_line_cb cb, void *ud)
 {
     emitf(cb, ud, "[paprika] %s", cmd);
-    char wrapped[PAPRIKA_PATH_MAX * 3];
-    if (!strstr(cmd, "2>&1") && !strstr(cmd, ">NUL") && !strstr(cmd, ">/dev/null")) {
-        snprintf(wrapped, sizeof(wrapped), "%s 2>&1", cmd);
-    } else {
-        snprintf(wrapped, sizeof(wrapped), "%s", cmd);
-    }
-    FILE *p = POPEN(wrapped, "r");
-    if (!p) return -1;
-    char line[1024];
-    while (fgets(line, sizeof(line), p)) {
-        paprika_chomp(line);
-        emit(cb, ud, line);
-    }
-    return PCLOSE(p);
+    return paprika_run_capture(cmd, cb, ud);
 }
 
 static bool curl_download(const char *url, const char *dest,
@@ -193,14 +174,14 @@ bool paprika_install_ffmpeg(paprika_line_cb cb, void *ud)
     char find_cmd[PAPRIKA_PATH_MAX * 3];
 #if defined(PAPRIKA_WINDOWS)
     snprintf(find_cmd, sizeof(find_cmd),
-             "where /R \"%s\" %s > \"%s\\_found.txt\" 2>NUL",
+             "where /R \"%s\" %s > \"%s\\_found.txt\"",
              extract_dir, FFMPEG_EXE_NAME, exe_dir);
 #else
     snprintf(find_cmd, sizeof(find_cmd),
-             "find \"%s\" -type f -name \"%s\" > \"%s/_found.txt\" 2>/dev/null",
+             "find \"%s\" -type f -name \"%s\" > \"%s/_found.txt\"",
              extract_dir, FFMPEG_EXE_NAME, exe_dir);
 #endif
-    system(find_cmd);
+    paprika_run_silent(find_cmd);
 
     char list_path[PAPRIKA_PATH_MAX];
     paprika_path_join(list_path, sizeof(list_path), exe_dir, "_found.txt");
@@ -249,7 +230,7 @@ bool paprika_install_ffmpeg(paprika_line_cb cb, void *ud)
 #else
     snprintf(rm_cmd, sizeof(rm_cmd), "rm -rf \"%s\"", extract_dir);
 #endif
-    system(rm_cmd);
+    paprika_run_silent(rm_cmd);
 
     emit(cb, ud, "[paprika] ffmpeg installed.");
     return true;

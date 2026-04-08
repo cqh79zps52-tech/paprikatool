@@ -20,6 +20,7 @@ endif()
 set(PAPRIKA_SOURCES
     src/main.c
     src/util.c
+    src/proc.c
     src/installer.c
     src/downloader.c
     src/autocut.c

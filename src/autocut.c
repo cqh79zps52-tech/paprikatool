@@ -4,14 +4,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#if defined(PAPRIKA_WINDOWS)
-#  define POPEN  _popen
-#  define PCLOSE _pclose
-#else
-#  define POPEN  popen
-#  define PCLOSE pclose
-#endif
-
 static void emit(paprika_line_cb cb, void *ud, const char *line)
 {
     if (cb) cb(line, ud);
@@ -49,7 +41,6 @@ bool paprika_autocut(const char *input,
     paprika_shell_quote(cmd, sizeof(cmd), filter);
     strcat(cmd, " ");
     paprika_shell_quote(cmd, sizeof(cmd), output);
-    strcat(cmd, " 2>&1");
 
     {
         char banner[sizeof(cmd) + 32];
@@ -57,17 +48,7 @@ bool paprika_autocut(const char *input,
         emit(cb, ud, banner);
     }
 
-    FILE *p = POPEN(cmd, "r");
-    if (!p) {
-        emit(cb, ud, "[paprika] Failed to launch ffmpeg.");
-        return false;
-    }
-    char line[2048];
-    while (fgets(line, sizeof(line), p)) {
-        paprika_chomp(line);
-        emit(cb, ud, line);
-    }
-    int rc = PCLOSE(p);
+    int rc = paprika_run_capture(cmd, cb, ud);
     if (rc != 0) {
         char msg[64];
         snprintf(msg, sizeof(msg), "[paprika] ffmpeg exited with status %d", rc);
