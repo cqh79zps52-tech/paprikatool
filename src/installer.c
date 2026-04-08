@@ -122,8 +122,14 @@ static int run_cmd(const char *cmd, paprika_line_cb cb, void *ud)
 static bool curl_download(const char *url, const char *dest,
                           paprika_line_cb cb, void *ud)
 {
-    char cmd[PAPRIKA_PATH_MAX * 2 + 64] = {0};
-    strcat(cmd, "curl -L --fail --silent --show-error -o ");
+    /* --retry-all-errors covers transient HTTP 5xx (e.g. evermeet.cx returns
+     * 503s when overloaded). 10 attempts × 5s delay × 5 min cap is enough to
+     * ride out short outages without making the user click the button again. */
+    char cmd[PAPRIKA_PATH_MAX * 2 + 192] = {0};
+    strcat(cmd,
+        "curl -L --fail --silent --show-error "
+        "--retry 10 --retry-delay 5 --retry-all-errors --retry-max-time 300 "
+        "-o ");
     paprika_shell_quote(cmd, sizeof(cmd), dest);
     strcat(cmd, " ");
     paprika_shell_quote(cmd, sizeof(cmd), url);
@@ -163,6 +169,15 @@ bool paprika_install_ffmpeg(paprika_line_cb cb, void *ud)
     emit(cb, ud, "[paprika] Downloading ffmpeg archive...");
     if (!curl_download(FFMPEG_URL, zip_path, cb, ud)) {
         emit(cb, ud, "[paprika] ffmpeg download failed.");
+#if defined(__APPLE__)
+        emit(cb, ud, "[paprika] evermeet.cx may be temporarily down (HTTP 503).");
+        emit(cb, ud, "[paprika] Try again in a few minutes, or install ffmpeg manually:");
+        emit(cb, ud, "[paprika]   brew install ffmpeg");
+        emitf(cb, ud,
+              "[paprika]   ln -s \"$(which ffmpeg)\" \"%s\"", dest);
+#else
+        emit(cb, ud, "[paprika] The mirror may be temporarily down. Try again in a few minutes.");
+#endif
         remove(zip_path);
         return false;
     }

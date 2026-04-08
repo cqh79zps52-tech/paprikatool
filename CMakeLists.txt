@@ -112,7 +112,7 @@ if(APPLE)
         COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/scripts/make_dmg.sh"
                 "$<TARGET_FILE:paprika>"
                 "${CMAKE_BINARY_DIR}/dist"
-                "1.1.2"
+                "1.1.3"
         DEPENDS paprika
         VERBATIM
         USES_TERMINAL

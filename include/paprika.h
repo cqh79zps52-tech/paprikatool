@@ -9,7 +9,7 @@
 #include <stddef.h>
 
 #define PAPRIKA_NAME    "Paprika Tool"
-#define PAPRIKA_VERSION "1.1.2"
+#define PAPRIKA_VERSION "1.1.3"
 
 #if defined(_WIN32)
 #  define PAPRIKA_WINDOWS 1
