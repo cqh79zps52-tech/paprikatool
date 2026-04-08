@@ -37,6 +37,11 @@ endif()
 #    cmd.exe and PowerShell will print stdout when launched from a shell. ──
 if(WIN32 AND PAPRIKA_BUILD_GUI)
     add_executable(paprika WIN32 ${PAPRIKA_SOURCES})
+    # WIN32 subsystem normally expects WinMain. Force the CRT to call the
+    # plain `int main` we already have.
+    if(MSVC)
+        target_link_options(paprika PRIVATE "/ENTRY:mainCRTStartup")
+    endif()
 else()
     add_executable(paprika ${PAPRIKA_SOURCES})
 endif()
