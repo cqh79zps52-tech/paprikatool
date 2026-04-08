@@ -14,7 +14,6 @@ jobs:
     defaults:
       run:
         shell: pwsh
-        working-directory: VersionInC
     steps:
       - uses: actions/checkout@v4
 
@@ -35,14 +34,11 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: paprika-windows-x64
-          path: VersionInC/dist/paprika.exe
+          path: dist/paprika.exe
 
   macos:
     name: macOS (universal)
     runs-on: macos-latest
-    defaults:
-      run:
-        working-directory: VersionInC
     steps:
       - uses: actions/checkout@v4
 
@@ -69,7 +65,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: paprika-macos-universal
-          path: VersionInC/dist/paprika
+          path: dist/paprika
 
   release:
     name: Attach to release
