@@ -12,7 +12,6 @@
 #  define PCLOSE pclose
 #endif
 
-/* yt-dlp format strings, mirrored from the Rust version. */
 static const char *format_for(paprika_quality q)
 {
     switch (q) {
@@ -39,12 +38,20 @@ static const char *format_for(paprika_quality q)
     return "best";
 }
 
+static void emit(paprika_line_cb cb, void *ud, const char *line)
+{
+    if (cb) cb(line, ud);
+    else    fprintf(stderr, "%s\n", line);
+}
+
 bool paprika_download(const char *url,
                       const char *output_dir,
-                      const paprika_download_opts *opts)
+                      const paprika_download_opts *opts,
+                      paprika_line_cb cb,
+                      void *ud)
 {
     if (!url || !*url) {
-        fprintf(stderr, "[paprika] empty URL\n");
+        emit(cb, ud, "[paprika] empty URL");
         return false;
     }
 
@@ -59,8 +66,6 @@ bool paprika_download(const char *url,
     paprika_path_join(output_template, sizeof(output_template),
                       output_dir, "%(title)s.%(ext)s");
 
-    /* Build the command. We use the shell to keep this portable across
-     * Windows (cmd.exe) and macOS (sh) — both ship `popen`. */
     char cmd[PAPRIKA_PATH_MAX * 4] = {0};
 
     paprika_shell_quote(cmd, sizeof(cmd), ytdlp);
@@ -88,27 +93,31 @@ bool paprika_download(const char *url,
 
     strcat(cmd, " ");
     paprika_shell_quote(cmd, sizeof(cmd), url);
-
-    /* Merge stderr into stdout so the user sees errors live. */
     strcat(cmd, " 2>&1");
 
-    fprintf(stderr, "[paprika] %s\n", cmd);
+    {
+        char banner[sizeof(cmd) + 32];
+        snprintf(banner, sizeof(banner), "[paprika] %s", cmd);
+        emit(cb, ud, banner);
+    }
 
     FILE *p = POPEN(cmd, "r");
     if (!p) {
-        fprintf(stderr, "[paprika] Failed to launch yt-dlp.\n");
+        emit(cb, ud, "[paprika] Failed to launch yt-dlp.");
         return false;
     }
 
     char line[2048];
     while (fgets(line, sizeof(line), p)) {
-        fputs(line, stdout);
-        fflush(stdout);
+        paprika_chomp(line);
+        emit(cb, ud, line);
     }
 
     int rc = PCLOSE(p);
     if (rc != 0) {
-        fprintf(stderr, "[paprika] yt-dlp exited with status %d\n", rc);
+        char msg[64];
+        snprintf(msg, sizeof(msg), "[paprika] yt-dlp exited with status %d", rc);
+        emit(cb, ud, msg);
         return false;
     }
     return true;

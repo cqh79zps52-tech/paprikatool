@@ -1,27 +1,53 @@
 #include "paprika.h"
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #if defined(PAPRIKA_WINDOWS)
+#  define POPEN  _popen
+#  define PCLOSE _pclose
 #  define YTDLP_URL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
 #  define FFMPEG_URL "https://github.com/BtbN/ffmpeg-builds/releases/latest/download/ffmpeg-master-latest-win64-gpl.zip"
 #  define FFMPEG_EXE_NAME "ffmpeg.exe"
 #elif defined(__APPLE__)
+#  define POPEN  popen
+#  define PCLOSE pclose
 #  define YTDLP_URL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos"
 #  define FFMPEG_URL "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip"
 #  define FFMPEG_EXE_NAME "ffmpeg"
 #else
+#  define POPEN  popen
+#  define PCLOSE pclose
 #  define YTDLP_URL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
 #  define FFMPEG_URL ""
 #  define FFMPEG_EXE_NAME "ffmpeg"
 #endif
 
+static void emit(paprika_line_cb cb, void *ud, const char *line)
+{
+    if (cb) cb(line, ud);
+    else    fprintf(stderr, "%s\n", line);
+}
+
+static void emitf(paprika_line_cb cb, void *ud, const char *fmt, ...)
+{
+    char buf[PAPRIKA_PATH_MAX];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+    emit(cb, ud, buf);
+}
+
 void paprika_ytdlp_path(char *out, size_t cap)
 {
     char dir[PAPRIKA_PATH_MAX];
-    if (!paprika_exe_dir(dir, sizeof(dir))) { snprintf(out, cap, "yt-dlp%s", PAPRIKA_EXE_SUFFIX); return; }
+    if (!paprika_exe_dir(dir, sizeof(dir))) {
+        snprintf(out, cap, "yt-dlp%s", PAPRIKA_EXE_SUFFIX);
+        return;
+    }
     char name[64];
     snprintf(name, sizeof(name), "yt-dlp%s", PAPRIKA_EXE_SUFFIX);
     paprika_path_join(out, cap, dir, name);
@@ -30,7 +56,10 @@ void paprika_ytdlp_path(char *out, size_t cap)
 void paprika_ffmpeg_path(char *out, size_t cap)
 {
     char dir[PAPRIKA_PATH_MAX];
-    if (!paprika_exe_dir(dir, sizeof(dir))) { snprintf(out, cap, "ffmpeg%s", PAPRIKA_EXE_SUFFIX); return; }
+    if (!paprika_exe_dir(dir, sizeof(dir))) {
+        snprintf(out, cap, "ffmpeg%s", PAPRIKA_EXE_SUFFIX);
+        return;
+    }
     char name[64];
     snprintf(name, sizeof(name), "ffmpeg%s", PAPRIKA_EXE_SUFFIX);
     paprika_path_join(out, cap, dir, name);
@@ -40,22 +69,16 @@ void paprika_ytdlp_command(char *out, size_t cap)
 {
     char p[PAPRIKA_PATH_MAX];
     paprika_ytdlp_path(p, sizeof(p));
-    if (paprika_file_exists(p)) {
-        snprintf(out, cap, "%s", p);
-    } else {
-        snprintf(out, cap, "yt-dlp");
-    }
+    if (paprika_file_exists(p)) snprintf(out, cap, "%s", p);
+    else                        snprintf(out, cap, "yt-dlp");
 }
 
 void paprika_ffmpeg_command(char *out, size_t cap)
 {
     char p[PAPRIKA_PATH_MAX];
     paprika_ffmpeg_path(p, sizeof(p));
-    if (paprika_file_exists(p)) {
-        snprintf(out, cap, "%s", p);
-    } else {
-        snprintf(out, cap, "ffmpeg");
-    }
+    if (paprika_file_exists(p)) snprintf(out, cap, "%s", p);
+    else                        snprintf(out, cap, "ffmpeg");
 }
 
 bool paprika_ytdlp_present(void)
@@ -63,8 +86,6 @@ bool paprika_ytdlp_present(void)
     char p[PAPRIKA_PATH_MAX];
     paprika_ytdlp_path(p, sizeof(p));
     if (paprika_file_exists(p)) return true;
-
-    /* Probe PATH. */
 #if defined(PAPRIKA_WINDOWS)
     return system("where yt-dlp >NUL 2>&1") == 0;
 #else
@@ -77,7 +98,6 @@ bool paprika_ffmpeg_present(void)
     char p[PAPRIKA_PATH_MAX];
     paprika_ffmpeg_path(p, sizeof(p));
     if (paprika_file_exists(p)) return true;
-
 #if defined(PAPRIKA_WINDOWS)
     return system("where ffmpeg >NUL 2>&1") == 0;
 #else
@@ -85,37 +105,56 @@ bool paprika_ffmpeg_present(void)
 #endif
 }
 
-/* Use the system `curl` (ships with Windows 10+ and macOS) to fetch a URL. */
-static bool curl_download(const char *url, const char *dest)
+/* Run a shell command, streaming each output line through cb. */
+static int run_cmd(const char *cmd, paprika_line_cb cb, void *ud)
+{
+    emitf(cb, ud, "[paprika] %s", cmd);
+    char wrapped[PAPRIKA_PATH_MAX * 3];
+    if (!strstr(cmd, "2>&1") && !strstr(cmd, ">NUL") && !strstr(cmd, ">/dev/null")) {
+        snprintf(wrapped, sizeof(wrapped), "%s 2>&1", cmd);
+    } else {
+        snprintf(wrapped, sizeof(wrapped), "%s", cmd);
+    }
+    FILE *p = POPEN(wrapped, "r");
+    if (!p) return -1;
+    char line[1024];
+    while (fgets(line, sizeof(line), p)) {
+        paprika_chomp(line);
+        emit(cb, ud, line);
+    }
+    return PCLOSE(p);
+}
+
+static bool curl_download(const char *url, const char *dest,
+                          paprika_line_cb cb, void *ud)
 {
     char cmd[PAPRIKA_PATH_MAX * 2 + 64] = {0};
-    strcat(cmd, "curl -L --fail --progress-bar -o ");
+    strcat(cmd, "curl -L --fail --silent --show-error -o ");
     paprika_shell_quote(cmd, sizeof(cmd), dest);
     strcat(cmd, " ");
     paprika_shell_quote(cmd, sizeof(cmd), url);
-    fprintf(stderr, "[paprika] %s\n", cmd);
-    return system(cmd) == 0;
+    return run_cmd(cmd, cb, ud) == 0;
 }
 
-bool paprika_install_ytdlp(void)
+bool paprika_install_ytdlp(paprika_line_cb cb, void *ud)
 {
     char dest[PAPRIKA_PATH_MAX];
     paprika_ytdlp_path(dest, sizeof(dest));
 
-    fprintf(stderr, "[paprika] Downloading yt-dlp -> %s\n", dest);
-    if (!curl_download(YTDLP_URL, dest)) {
-        fprintf(stderr, "[paprika] yt-dlp download failed.\n");
+    emitf(cb, ud, "[paprika] Downloading yt-dlp -> %s", dest);
+    if (!curl_download(YTDLP_URL, dest, cb, ud)) {
+        emit(cb, ud, "[paprika] yt-dlp download failed.");
         return false;
     }
     paprika_make_executable(dest);
-    fprintf(stderr, "[paprika] yt-dlp installed.\n");
+    emit(cb, ud, "[paprika] yt-dlp installed.");
     return true;
 }
 
-bool paprika_install_ffmpeg(void)
+bool paprika_install_ffmpeg(paprika_line_cb cb, void *ud)
 {
 #if !defined(PAPRIKA_WINDOWS) && !defined(__APPLE__)
-    fprintf(stderr, "[paprika] Auto-install of ffmpeg only supported on Windows and macOS.\n");
+    emit(cb, ud, "[paprika] Auto-install of ffmpeg only supported on Windows and macOS.");
     return false;
 #else
     char exe_dir[PAPRIKA_PATH_MAX];
@@ -127,16 +166,13 @@ bool paprika_install_ffmpeg(void)
     char dest[PAPRIKA_PATH_MAX];
     paprika_ffmpeg_path(dest, sizeof(dest));
 
-    fprintf(stderr, "[paprika] Downloading ffmpeg archive...\n");
-    if (!curl_download(FFMPEG_URL, zip_path)) {
-        fprintf(stderr, "[paprika] ffmpeg download failed.\n");
+    emit(cb, ud, "[paprika] Downloading ffmpeg archive...");
+    if (!curl_download(FFMPEG_URL, zip_path, cb, ud)) {
+        emit(cb, ud, "[paprika] ffmpeg download failed.");
         remove(zip_path);
         return false;
     }
 
-    /* Extract using bsdtar (built into Windows 10+) / tar (macOS).
-     * Both can read .zip archives transparently. We extract into a
-     * temporary directory and then move the matched binary into place. */
     char extract_dir[PAPRIKA_PATH_MAX];
     paprika_path_join(extract_dir, sizeof(extract_dir), exe_dir, "_ffmpeg_extract");
     paprika_mkdir_p(extract_dir);
@@ -147,14 +183,13 @@ bool paprika_install_ffmpeg(void)
     strcat(cmd, " -C ");
     paprika_shell_quote(cmd, sizeof(cmd), extract_dir);
 
-    fprintf(stderr, "[paprika] Extracting...\n");
-    if (system(cmd) != 0) {
-        fprintf(stderr, "[paprika] Extraction failed.\n");
+    emit(cb, ud, "[paprika] Extracting...");
+    if (run_cmd(cmd, cb, ud) != 0) {
+        emit(cb, ud, "[paprika] Extraction failed.");
         remove(zip_path);
         return false;
     }
 
-    /* Find FFMPEG_EXE_NAME inside extract_dir using a portable shell command. */
     char find_cmd[PAPRIKA_PATH_MAX * 3];
 #if defined(PAPRIKA_WINDOWS)
     snprintf(find_cmd, sizeof(find_cmd),
@@ -162,7 +197,7 @@ bool paprika_install_ffmpeg(void)
              extract_dir, FFMPEG_EXE_NAME, exe_dir);
 #else
     snprintf(find_cmd, sizeof(find_cmd),
-             "find '%s' -type f -name '%s' > '%s/_found.txt' 2>/dev/null",
+             "find \"%s\" -type f -name \"%s\" > \"%s/_found.txt\" 2>/dev/null",
              extract_dir, FFMPEG_EXE_NAME, exe_dir);
 #endif
     system(find_cmd);
@@ -172,7 +207,7 @@ bool paprika_install_ffmpeg(void)
 
     FILE *f = fopen(list_path, "r");
     if (!f) {
-        fprintf(stderr, "[paprika] Could not locate %s in archive.\n", FFMPEG_EXE_NAME);
+        emitf(cb, ud, "[paprika] Could not locate %s in archive.", FFMPEG_EXE_NAME);
         remove(zip_path);
         return false;
     }
@@ -180,7 +215,7 @@ bool paprika_install_ffmpeg(void)
     char found[PAPRIKA_PATH_MAX] = {0};
     if (!fgets(found, sizeof(found), f)) {
         fclose(f);
-        fprintf(stderr, "[paprika] %s not found in archive.\n", FFMPEG_EXE_NAME);
+        emitf(cb, ud, "[paprika] %s not found in archive.", FFMPEG_EXE_NAME);
         remove(zip_path);
         remove(list_path);
         return false;
@@ -188,14 +223,13 @@ bool paprika_install_ffmpeg(void)
     fclose(f);
     paprika_chomp(found);
 
-    /* Move (rename) the binary into place. Cross-device safe via fallback copy. */
     if (rename(found, dest) != 0) {
         FILE *src = fopen(found, "rb");
         FILE *dst = fopen(dest, "wb");
         if (!src || !dst) {
             if (src) fclose(src);
             if (dst) fclose(dst);
-            fprintf(stderr, "[paprika] Failed to install ffmpeg binary.\n");
+            emit(cb, ud, "[paprika] Failed to install ffmpeg binary.");
             return false;
         }
         char buf[65536];
@@ -209,17 +243,15 @@ bool paprika_install_ffmpeg(void)
     remove(zip_path);
     remove(list_path);
 
-    /* Best-effort cleanup of extract_dir. */
-#if defined(PAPRIKA_WINDOWS)
     char rm_cmd[PAPRIKA_PATH_MAX + 32];
+#if defined(PAPRIKA_WINDOWS)
     snprintf(rm_cmd, sizeof(rm_cmd), "rmdir /S /Q \"%s\"", extract_dir);
 #else
-    char rm_cmd[PAPRIKA_PATH_MAX + 32];
-    snprintf(rm_cmd, sizeof(rm_cmd), "rm -rf '%s'", extract_dir);
+    snprintf(rm_cmd, sizeof(rm_cmd), "rm -rf \"%s\"", extract_dir);
 #endif
     system(rm_cmd);
 
-    fprintf(stderr, "[paprika] ffmpeg installed.\n");
+    emit(cb, ud, "[paprika] ffmpeg installed.");
     return true;
 #endif
 }

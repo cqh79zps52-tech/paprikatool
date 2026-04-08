@@ -12,20 +12,27 @@
 #  define PCLOSE pclose
 #endif
 
+static void emit(paprika_line_cb cb, void *ud, const char *line)
+{
+    if (cb) cb(line, ud);
+    else    fprintf(stderr, "%s\n", line);
+}
+
 bool paprika_autocut(const char *input,
                      const char *output,
                      float threshold_db,
-                     int   fade_ms)
+                     int   fade_ms,
+                     paprika_line_cb cb,
+                     void *ud)
 {
     if (!paprika_ffmpeg_present()) {
-        fprintf(stderr, "[paprika] ffmpeg not found — install it from the menu.\n");
+        emit(cb, ud, "[paprika] ffmpeg not found — install it from the menu.");
         return false;
     }
 
     char ffmpeg[PAPRIKA_PATH_MAX];
     paprika_ffmpeg_command(ffmpeg, sizeof(ffmpeg));
 
-    /* Build the silenceremove + afade filter chain. */
     char filter[512];
     float fade_s = (fade_ms > 0 ? fade_ms : 0) / 1000.0f;
     snprintf(filter, sizeof(filter),
@@ -44,20 +51,33 @@ bool paprika_autocut(const char *input,
     paprika_shell_quote(cmd, sizeof(cmd), output);
     strcat(cmd, " 2>&1");
 
-    fprintf(stderr, "[paprika] %s\n", cmd);
+    {
+        char banner[sizeof(cmd) + 32];
+        snprintf(banner, sizeof(banner), "[paprika] %s", cmd);
+        emit(cb, ud, banner);
+    }
 
     FILE *p = POPEN(cmd, "r");
     if (!p) {
-        fprintf(stderr, "[paprika] Failed to launch ffmpeg.\n");
+        emit(cb, ud, "[paprika] Failed to launch ffmpeg.");
         return false;
     }
     char line[2048];
-    while (fgets(line, sizeof(line), p)) fputs(line, stdout);
+    while (fgets(line, sizeof(line), p)) {
+        paprika_chomp(line);
+        emit(cb, ud, line);
+    }
     int rc = PCLOSE(p);
     if (rc != 0) {
-        fprintf(stderr, "[paprika] ffmpeg exited with status %d\n", rc);
+        char msg[64];
+        snprintf(msg, sizeof(msg), "[paprika] ffmpeg exited with status %d", rc);
+        emit(cb, ud, msg);
         return false;
     }
-    fprintf(stderr, "[paprika] Autocut complete -> %s\n", output);
+    {
+        char done[PAPRIKA_PATH_MAX];
+        snprintf(done, sizeof(done), "[paprika] Autocut complete -> %s", output);
+        emit(cb, ud, done);
+    }
     return true;
 }
