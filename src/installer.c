@@ -11,7 +11,7 @@
 #  define FFMPEG_EXE_NAME "ffmpeg.exe"
 #elif defined(__APPLE__)
 #  define YTDLP_URL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos"
-#  define FFMPEG_URL "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip"
+#  define FFMPEG_URL "https://evermeet.cx/ffmpeg/getrelease/zip"
 #  define FFMPEG_EXE_NAME "ffmpeg"
 #else
 #  define YTDLP_URL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
@@ -186,11 +186,23 @@ bool paprika_install_ffmpeg(paprika_line_cb cb, void *ud)
     paprika_path_join(extract_dir, sizeof(extract_dir), tools, "_ffmpeg_extract");
     paprika_mkdir_p(extract_dir);
 
+    /* Windows: bsdtar (bundled with Win10+) reads .zip transparently.
+     * macOS: tar's libarchive can be flaky on certain zip layouts and may
+     * exit 0 without producing any files, leaving the find step empty and
+     * triggering "ffmpeg not found in archive". Use the always-present
+     * `unzip` instead — it reliably handles evermeet's archive format. */
     char cmd[PAPRIKA_PATH_MAX * 3] = {0};
+#if defined(__APPLE__)
+    strcat(cmd, "unzip -o -q ");
+    paprika_shell_quote(cmd, sizeof(cmd), zip_path);
+    strcat(cmd, " -d ");
+    paprika_shell_quote(cmd, sizeof(cmd), extract_dir);
+#else
     strcat(cmd, "tar -xf ");
     paprika_shell_quote(cmd, sizeof(cmd), zip_path);
     strcat(cmd, " -C ");
     paprika_shell_quote(cmd, sizeof(cmd), extract_dir);
+#endif
 
     emit(cb, ud, "[paprika] Extracting...");
     if (run_cmd(cmd, cb, ud) != 0) {
